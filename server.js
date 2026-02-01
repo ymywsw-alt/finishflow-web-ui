@@ -1,55 +1,101 @@
+/**
+ * finishflow-web-ui/server.js (FULL REPLACE - ESM)
+ * - Serve static UI from /public
+ * - Proxy:
+ *   GET  /health  -> ENGINE_URL/health
+ *   POST /make    -> ENGINE_URL/execute
+ *   POST /execute -> ENGINE_URL/execute
+ *
+ * ENV:
+ *   ENGINE_URL = https://finishflow-live-1.onrender.com
+ */
+
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const app = express();
+const PORT = Number(process.env.PORT || 10000);
+const ENGINE_URL = (process.env.ENGINE_URL || "").replace(/\/$/, "");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ===== Config =====
-const PORT = process.env.PORT || 10000;
-const FINISHFLOW_API_BASE =
-  process.env.FINISHFLOW_API_BASE || "https://finishflow-live-1.onrender.com";
-
-// ===== Middleware =====
-app.use(express.json({ limit: "2mb" }));
-
-// 정적 UI
+// 1) static files
 app.use(express.static(path.join(__dirname, "public")));
 
-// 루트는 index.html
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
+// 2) raw body (빈 바디/깨진 JSON 방어)
+app.use(express.text({ type: "*/*", limit: "10mb" }));
 
-// health
-app.get("/health", (req, res) => {
-  res.json({ ok: true, api: FINISHFLOW_API_BASE });
-});
-
-// /make 프록시 (항상 JSON으로 보내고, 응답은 그대로 반환)
-app.post("/make", async (req, res) => {
+function safeParseJSON(raw) {
+  const t = (raw ?? "").toString();
+  if (!t.trim()) return null;
   try {
-    const upstream = await fetch(`${FINISHFLOW_API_BASE}/make`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body ?? {}),
+    return JSON.parse(t);
+  } catch {
+    return "__INVALID_JSON__";
+  }
+}
+
+function requireEngine(res) {
+  if (!ENGINE_URL) {
+    res.status(500).json({ error: "ENGINE_URL is not set" });
+    return false;
+  }
+  return true;
+}
+
+// GET /health → engine /health
+app.get("/health", async (req, res) => {
+  if (!requireEngine(res)) return;
+  try {
+    const r = await fetch(`${ENGINE_URL}/health`);
+    const text = await r.text();
+    res.status(r.status).type("application/json").send(text);
+  } catch (e) {
+    res.status(502).json({
+      error: "Failed to reach engine /health",
+      message: String(e?.message || e),
     });
-
-    const contentType = upstream.headers.get("content-type") || "";
-    const text = await upstream.text(); // 무조건 text로 받고 그대로 돌려준다
-
-    res.status(upstream.status);
-    if (contentType) res.setHeader("content-type", contentType);
-    return res.send(text);
-  } catch (err) {
-    console.error("PROXY /make failed:", err);
-    return res.status(502).json({ ok: false, error: "proxy_failed" });
   }
 });
 
+// POST /make, /execute → engine /execute
+async function proxyExecute(req, res) {
+  if (!requireEngine(res)) return;
+
+  const parsed = safeParseJSON(req.body);
+  if (parsed === "__INVALID_JSON__") {
+    return res.status(400).json({ error: "Invalid JSON body" });
+  }
+
+  const payload = parsed && typeof parsed === "object" ? parsed : {};
+
+  try {
+    const r = await fetch(`${ENGINE_URL}/execute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const text = await r.text();
+    res.status(r.status).type("application/json").send(text);
+  } catch (e) {
+    res.status(502).json({
+      error: "Failed to reach engine /execute",
+      message: String(e?.message || e),
+    });
+  }
+}
+
+app.post("/make", proxyExecute);
+app.post("/execute", proxyExecute);
+
+// 404
+app.use((req, res) => {
+  res.status(404).json({ error: "Not Found" });
+});
+
 app.listen(PORT, () => {
-  console.log(`FinishFlow Web UI running on ${PORT}`);
-  console.log(`FINISHFLOW_API_BASE=${FINISHFLOW_API_BASE}`);
+  console.log(`finishflow-web-ui listening on ${PORT}`);
+  console.log(`ENGINE_URL=${ENGINE_URL || "(not set)"}`);
 });
