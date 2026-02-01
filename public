@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>FinishFlow Web UI</title>
+</head>
+<body>
+  <h1>FinishFlow (버튼 UI)</h1>
+
+  <button onclick="run()">한방 제작 실행</button>
+
+  <pre id="result"></pre>
+
+  <script src="/make.js"></script>
+</body>
+</html>
