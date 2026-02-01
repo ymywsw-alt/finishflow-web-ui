@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FinishFlow (버튼 UI 복구)</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 20px; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
+      label { font-weight: 600; min-width: 110px; }
+      select, input, textarea { padding: 10px; border: 1px solid #ddd; border-radius: 10px; }
+      input { min-width: 280px; }
+      textarea { width: 100%; min-height: 140px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+      button { padding: 10px 14px; border: 0; border-radius: 12px; cursor: pointer; font-weight: 700; }
+      button.primary { background: #111; color: #fff; }
+      button.secondary { background: #eee; }
+      pre { white-space: pre-wrap; background: #f7f7f7; padding: 12px; border-radius: 12px; border: 1px solid #eee; }
+      .hint { color: #666; font-size: 12px; }
+    </style>
+  </head>
+
+  <body>
+    <h1>FinishFlow (버튼 UI 복구)</h1>
+
+    <div class="row">
+      <label>국가</label>
+      <select id="country">
+        <option value="KR" selected>한국(KR)</option>
+        <option value="JP">일본(JP)</option>
+        <option value="US">미국(US)</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label>주제(간단히)</label>
+      <input id="topic" placeholder="예: 50대 테니스 초보가 무릎 안 아프게 시작하는 법" />
+    </div>
+
+    <div class="row" style="align-items:flex-start;">
+      <label>추가 파라미터(JSON)</label>
+      <div style="flex:1;">
+        <textarea id="params">{}</textarea>
+        <div class="hint">모르겠으면 {} 그대로</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="primary" onclick="run()">한방 제작 실행</button>
+      <button class="secondary" onclick="health()">/health 확인</button>
+    </div>
+
+    <pre id="result">대기 중…</pre>
+
+    <script src="/make.js"></script>
+  </body>
+</html>
