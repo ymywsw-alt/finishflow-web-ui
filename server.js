@@ -5,14 +5,14 @@ import { fileURLToPath } from "url";
 const app = express();
 app.use(express.json());
 
-// ESM에서 __dirname 만들기
+// __dirname (ESM)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ public 폴더 정적 서빙 (절대 경로)
+// ✅ 정적 파일 서빙: /public 아래를 사이트 루트로
 app.use(express.static(path.join(__dirname, "public")));
 
-// ✅ / 와 /index.html 모두 강제 매핑
+// ✅ / 와 /index.html 강제 매핑 (Cannot GET 방지)
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
@@ -20,7 +20,7 @@ app.get("/index.html", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ✅ 브라우저가 호출하는 유일한 엔드포인트 (/make)
+// ✅ 브라우저는 오직 /make만 호출
 app.post("/make", async (req, res) => {
   try {
     const r = await fetch("https://finishflow-live-1.onrender.com/make", {
