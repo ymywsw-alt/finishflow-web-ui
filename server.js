@@ -6,8 +6,10 @@
  *   POST /make    -> ENGINE_URL/execute
  *   POST /execute -> ENGINE_URL/execute
  *
- * ENV:
+ * ENV (any one of these is accepted):
  *   ENGINE_URL = https://finishflow-live-1.onrender.com
+ *   ENGINEURL  = https://finishflow-live-1.onrender.com
+ *   FINISHFLOW_ENGINE_URL = https://finishflow-live-1.onrender.com
  */
 
 import express from "express";
@@ -16,7 +18,15 @@ import { fileURLToPath } from "url";
 
 const app = express();
 const PORT = Number(process.env.PORT || 10000);
-const ENGINE_URL = (process.env.ENGINE_URL || "").replace(/\/$/, "");
+
+// ✅ Accept multiple env keys to eliminate mismatch errors
+const ENGINE_URL_RAW =
+  process.env.ENGINE_URL ||
+  process.env.ENGINEURL ||
+  process.env.FINISHFLOW_ENGINE_URL ||
+  "";
+
+const ENGINE_URL = ENGINE_URL_RAW.toString().trim().replace(/\/$/, "");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +34,7 @@ const __dirname = path.dirname(__filename);
 // 1) static files
 app.use(express.static(path.join(__dirname, "public")));
 
-// 2) raw body (빈 바디/깨진 JSON 방어)
+// 2) raw body (empty body / invalid JSON safe)
 app.use(express.text({ type: "*/*", limit: "10mb" }));
 
 function safeParseJSON(raw) {
@@ -39,7 +49,15 @@ function safeParseJSON(raw) {
 
 function requireEngine(res) {
   if (!ENGINE_URL) {
-    res.status(500).json({ error: "ENGINE_URL is not set" });
+    res.status(500).json({
+      error: "ENGINE_URL is not set",
+      hint: "Set Render env ENGINE_URL=https://finishflow-live-1.onrender.com (no trailing slash)",
+      seenKeys: {
+        ENGINE_URL: Boolean(process.env.ENGINE_URL),
+        ENGINEURL: Boolean(process.env.ENGINEURL),
+        FINISHFLOW_ENGINE_URL: Boolean(process.env.FINISHFLOW_ENGINE_URL),
+      },
+    });
     return false;
   }
   return true;
@@ -48,8 +66,9 @@ function requireEngine(res) {
 // GET /health → engine /health
 app.get("/health", async (req, res) => {
   if (!requireEngine(res)) return;
+
   try {
-    const r = await fetch(`${ENGINE_URL}/health`);
+    const r = await fetch(`${ENGINE_URL}/health`, { method: "GET" });
     const text = await r.text();
     res.status(r.status).type("application/json").send(text);
   } catch (e) {
@@ -65,6 +84,7 @@ async function proxyExecute(req, res) {
   if (!requireEngine(res)) return;
 
   const parsed = safeParseJSON(req.body);
+
   if (parsed === "__INVALID_JSON__") {
     return res.status(400).json({ error: "Invalid JSON body" });
   }
@@ -77,6 +97,7 @@ async function proxyExecute(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+
     const text = await r.text();
     res.status(r.status).type("application/json").send(text);
   } catch (e) {
