@@ -4,67 +4,51 @@ import { fileURLToPath } from "url";
 
 const app = express();
 
-// __dirname for ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ===== Config =====
 const PORT = process.env.PORT || 10000;
-
-// 엔진(Worker/API) 베이스 URL (예: https://finishflow-live-1.onrender.com)
 const FINISHFLOW_API_BASE =
   process.env.FINISHFLOW_API_BASE || "https://finishflow-live-1.onrender.com";
 
 // ===== Middleware =====
 app.use(express.json({ limit: "2mb" }));
 
-// public 디렉터리 정석 서빙
-const publicDir = path.join(__dirname, "public");
-app.use(express.static(publicDir));
+// 정적 UI
+app.use(express.static(path.join(__dirname, "public")));
 
-// ===== Health =====
-app.get("/health", (req, res) => {
-  res.status(200).send("ok");
-});
-
-// ===== UI Route =====
-// / 또는 /index.html로 들어오면 public/index.html 서빙
+// 루트는 index.html
 app.get("/", (req, res) => {
-  res.sendFile(path.join(publicDir, "index.html"));
-});
-app.get("/index.html", (req, res) => {
-  res.sendFile(path.join(publicDir, "index.html"));
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ===== Proxy: /make -> {FINISHFLOW_API_BASE}/make =====
-// ✅ 브라우저는 무조건 같은 오리진(/make)만 호출 -> CORS 제거
+// health
+app.get("/health", (req, res) => {
+  res.json({ ok: true, api: FINISHFLOW_API_BASE });
+});
+
+// /make 프록시 (항상 JSON으로 보내고, 응답은 그대로 반환)
 app.post("/make", async (req, res) => {
   try {
-    const upstreamUrl = `${FINISHFLOW_API_BASE.replace(/\/$/, "")}/make`;
-
-    const upstream = await fetch(upstreamUrl, {
+    const upstream = await fetch(`${FINISHFLOW_API_BASE}/make`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req.body ?? {}),
     });
 
-    const contentType = upstream.headers.get("content-type") || "text/plain";
-    res.status(upstream.status);
-    res.setHeader("content-type", contentType);
+    const contentType = upstream.headers.get("content-type") || "";
+    const text = await upstream.text(); // 무조건 text로 받고 그대로 돌려준다
 
-    // upstream이 JSON이든 텍스트든 그대로 전달
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    return res.send(buf);
+    res.status(upstream.status);
+    if (contentType) res.setHeader("content-type", contentType);
+    return res.send(text);
   } catch (err) {
-    return res
-      .status(502)
-      .send(`proxy error: failed to call engine /make\n${String(err)}`);
+    console.error("PROXY /make failed:", err);
+    return res.status(502).json({ ok: false, error: "proxy_failed" });
   }
 });
 
-// ===== Start =====
 app.listen(PORT, () => {
   console.log(`FinishFlow Web UI running on ${PORT}`);
   console.log(`FINISHFLOW_API_BASE=${FINISHFLOW_API_BASE}`);
