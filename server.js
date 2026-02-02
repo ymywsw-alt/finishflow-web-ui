@@ -1,122 +1,100 @@
-/**
- * finishflow-web-ui/server.js (FULL REPLACE - ESM)
- * - Serve static UI from /public
- * - Proxy:
- *   GET  /health  -> ENGINE_URL/health
- *   POST /make    -> ENGINE_URL/execute
- *   POST /execute -> ENGINE_URL/execute
- *
- * ENV (any one of these is accepted):
- *   ENGINE_URL = https://finishflow-live-1.onrender.com
- *   ENGINEURL  = https://finishflow-live-1.onrender.com
- *   FINISHFLOW_ENGINE_URL = https://finishflow-live-1.onrender.com
- */
-
 import express from "express";
+import fetch from "node-fetch";
 import path from "path";
-import { fileURLToPath } from "url";
 
 const app = express();
-const PORT = Number(process.env.PORT || 10000);
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
 
-// ✅ Accept multiple env keys to eliminate mismatch errors
-const ENGINE_URL_RAW =
-  process.env.ENGINE_URL ||
-  process.env.ENGINEURL ||
-  process.env.FINISHFLOW_ENGINE_URL ||
-  "";
+const ENGINE_URL = process.env.ENGINE_URL;
 
-const ENGINE_URL = ENGINE_URL_RAW.toString().trim().replace(/\/$/, "");
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// 1) static files
-app.use(express.static(path.join(__dirname, "public")));
-
-// 2) raw body (empty body / invalid JSON safe)
-app.use(express.text({ type: "*/*", limit: "10mb" }));
-
-function safeParseJSON(raw) {
-  const t = (raw ?? "").toString();
-  if (!t.trim()) return null;
-  try {
-    return JSON.parse(t);
-  } catch {
-    return "__INVALID_JSON__";
-  }
+if (!ENGINE_URL) {
+  console.error("❌ ENGINE_URL is not set");
 }
 
-function requireEngine(res) {
-  if (!ENGINE_URL) {
-    res.status(500).json({
-      error: "ENGINE_URL is not set",
-      hint: "Set Render env ENGINE_URL=https://finishflow-live-1.onrender.com (no trailing slash)",
-      seenKeys: {
-        ENGINE_URL: Boolean(process.env.ENGINE_URL),
-        ENGINEURL: Boolean(process.env.ENGINEURL),
-        FINISHFLOW_ENGINE_URL: Boolean(process.env.FINISHFLOW_ENGINE_URL),
-      },
-    });
-    return false;
-  }
-  return true;
-}
+/**
+ * UI static
+ */
+app.use(express.static("public"));
 
-// GET /health → engine /health
+/**
+ * Health (proxy)
+ */
 app.get("/health", async (req, res) => {
-  if (!requireEngine(res)) return;
-
   try {
-    const r = await fetch(`${ENGINE_URL}/health`, { method: "GET" });
-    const text = await r.text();
-    res.status(r.status).type("application/json").send(text);
+    const r = await fetch(`${ENGINE_URL}/health`);
+    const j = await r.json();
+    res.json(j);
   } catch (e) {
-    res.status(502).json({
-      error: "Failed to reach engine /health",
-      message: String(e?.message || e),
-    });
+    res.status(500).json({ ok: false, error: "ENGINE_UNREACHABLE" });
   }
 });
 
-// POST /make, /execute → engine /execute
-async function proxyExecute(req, res) {
-  if (!requireEngine(res)) return;
-
-  const parsed = safeParseJSON(req.body);
-
-  if (parsed === "__INVALID_JSON__") {
-    return res.status(400).json({ error: "Invalid JSON body" });
-  }
-
-  const payload = parsed && typeof parsed === "object" ? parsed : {};
-
+/**
+ * Execute (UI → live)
+ */
+app.post("/execute", async (req, res) => {
   try {
+    if (!ENGINE_URL) {
+      return res.status(500).json({
+        ok: false,
+        error: "ENGINE_URL is not set",
+      });
+    }
+
+    const { topic, country, extraJson } = req.body || {};
+
+    // 1️⃣ JSON 파싱
+    let extra = {};
+    if (extraJson) {
+      try {
+        extra = JSON.parse(extraJson);
+      } catch {
+        return res.status(400).json({
+          ok: false,
+          error: "INVALID_JSON",
+        });
+      }
+    }
+
+    // 2️⃣ prompt 자동 매핑
+    const finalPrompt =
+      typeof extra.prompt === "string" && extra.prompt.trim()
+        ? extra.prompt.trim()
+        : typeof topic === "string"
+        ? topic.trim()
+        : "";
+
+    if (!finalPrompt) {
+      return res.status(400).json({
+        ok: false,
+        error: "EMPTY_TOPIC",
+      });
+    }
+
+    // 3️⃣ live로 전달
     const r = await fetch(`${ENGINE_URL}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...extra,
+        prompt: finalPrompt,
+        mode: extra.mode || country || "default",
+      }),
     });
 
     const text = await r.text();
-    res.status(r.status).type("application/json").send(text);
+    res.status(r.status).send(text);
   } catch (e) {
-    res.status(502).json({
-      error: "Failed to reach engine /execute",
+    res.status(500).json({
+      ok: false,
+      error: "UI_EXECUTE_FAILED",
       message: String(e?.message || e),
     });
   }
-}
-
-app.post("/make", proxyExecute);
-app.post("/execute", proxyExecute);
-
-// 404
-app.use((req, res) => {
-  res.status(404).json({ error: "Not Found" });
 });
 
-app.listen(PORT, () => {
-  console.log(`finishflow-web-ui listening on ${PORT}`);
-  console.log(`ENGINE_URL=${ENGINE_URL || "(not set)"}`);
-});
+const port = process.env.PORT || 3000;
+app.listen(port, () =>
+  console.log(`[finishflow-web-ui] listening on ${port}`)
+);
