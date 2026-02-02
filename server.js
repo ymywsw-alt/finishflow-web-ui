@@ -11,12 +11,12 @@ if (!ENGINE_URL) {
 }
 
 /**
- * UI static
+ * Static UI
  */
 app.use(express.static("public"));
 
 /**
- * Health (proxy)
+ * Health check (proxy)
  */
 app.get("/health", async (req, res) => {
   try {
@@ -26,16 +26,16 @@ app.get("/health", async (req, res) => {
     const r = await fetch(`${ENGINE_URL}/health`);
     const j = await r.json();
     return res.json(j);
-  } catch (e) {
+  } catch {
     return res.status(500).json({ ok: false, error: "ENGINE_UNREACHABLE" });
   }
 });
 
 /**
- * Execute handler (UI → live)
- * - extraJson 안에 prompt가 있으면 그걸 사용
- * - 없으면 topic(주제)을 prompt로 자동 매핑
- * - UI가 /make 를 치든 /execute 를 치든 동일 처리 (안정)
+ * Unified execute handler
+ * - UI가 /make 또는 /execute를 호출해도 동일 처리
+ * - extraJson.prompt 우선
+ * - 없으면 topic → prompt 자동 매핑
  */
 async function handleMakeOrExecute(req, res) {
   try {
@@ -48,7 +48,7 @@ async function handleMakeOrExecute(req, res) {
 
     const { topic, country, extraJson } = req.body || {};
 
-    // 1) JSON 파싱
+    // extraJson 파싱
     let extra = {};
     if (extraJson && String(extraJson).trim()) {
       try {
@@ -58,7 +58,7 @@ async function handleMakeOrExecute(req, res) {
       }
     }
 
-    // 2) prompt 자동 매핑
+    // prompt 자동 결정
     const finalPrompt =
       typeof extra.prompt === "string" && extra.prompt.trim()
         ? extra.prompt.trim()
@@ -70,7 +70,7 @@ async function handleMakeOrExecute(req, res) {
       return res.status(400).json({ ok: false, error: "EMPTY_TOPIC" });
     }
 
-    // 3) live로 전달 (live는 /execute, /api/execute 둘 다 지원하지만 /execute로 고정)
+    // live 서버로 전달
     const r = await fetch(`${ENGINE_URL}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -93,8 +93,8 @@ async function handleMakeOrExecute(req, res) {
 }
 
 /**
- * ✅ 가장 안정적인 구조:
- * UI가 어떤 경로(/make or /execute)를 때려도 동일 핸들러로 처리
+ * 가장 안정적인 구조:
+ * /make, /execute 모두 같은 핸들러 사용
  */
 app.post("/make", handleMakeOrExecute);
 app.post("/execute", handleMakeOrExecute);
