@@ -25,18 +25,19 @@ app.get("/health", async (req, res) => {
     }
     const r = await fetch(`${ENGINE_URL}/health`);
     const j = await r.json();
-    res.json(j);
+    return res.json(j);
   } catch (e) {
-    res.status(500).json({ ok: false, error: "ENGINE_UNREACHABLE" });
+    return res.status(500).json({ ok: false, error: "ENGINE_UNREACHABLE" });
   }
 });
 
 /**
- * Execute (UI → live)
+ * Execute handler (UI → live)
  * - extraJson 안에 prompt가 있으면 그걸 사용
  * - 없으면 topic(주제)을 prompt로 자동 매핑
+ * - UI가 /make 를 치든 /execute 를 치든 동일 처리 (안정)
  */
-app.post("/execute", async (req, res) => {
+async function handleMakeOrExecute(req, res) {
   try {
     if (!ENGINE_URL) {
       return res.status(500).json({
@@ -69,7 +70,7 @@ app.post("/execute", async (req, res) => {
       return res.status(400).json({ ok: false, error: "EMPTY_TOPIC" });
     }
 
-    // 3) live로 전달 (/execute 사용)
+    // 3) live로 전달 (live는 /execute, /api/execute 둘 다 지원하지만 /execute로 고정)
     const r = await fetch(`${ENGINE_URL}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -81,15 +82,24 @@ app.post("/execute", async (req, res) => {
     });
 
     const text = await r.text();
-    res.status(r.status).send(text);
+    return res.status(r.status).send(text);
   } catch (e) {
-    res.status(500).json({
+    return res.status(500).json({
       ok: false,
-      error: "UI_EXECUTE_FAILED",
+      error: "UI_PROXY_FAILED",
       message: String(e?.message || e),
     });
   }
-});
+}
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`[finishflow-web-ui] listening on ${port}`));
+/**
+ * ✅ 가장 안정적인 구조:
+ * UI가 어떤 경로(/make or /execute)를 때려도 동일 핸들러로 처리
+ */
+app.post("/make", handleMakeOrExecute);
+app.post("/execute", handleMakeOrExecute);
+
+const port = process.env.PORT || 10000;
+app.listen(port, () =>
+  console.log(`[finishflow-web-ui] listening on ${port}`)
+);
