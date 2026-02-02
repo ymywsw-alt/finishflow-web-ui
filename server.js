@@ -1,6 +1,4 @@
-const express = require("express");
-const fetch = require("node-fetch");
-const path = require("path");
+import express from "express";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -22,6 +20,9 @@ app.use(express.static("public"));
  */
 app.get("/health", async (req, res) => {
   try {
+    if (!ENGINE_URL) {
+      return res.status(500).json({ ok: false, error: "ENGINE_URL is not set" });
+    }
     const r = await fetch(`${ENGINE_URL}/health`);
     const j = await r.json();
     res.json(j);
@@ -32,6 +33,8 @@ app.get("/health", async (req, res) => {
 
 /**
  * Execute (UI → live)
+ * - extraJson 안에 prompt가 있으면 그걸 사용
+ * - 없으면 topic(주제)을 prompt로 자동 매핑
  */
 app.post("/execute", async (req, res) => {
   try {
@@ -44,20 +47,17 @@ app.post("/execute", async (req, res) => {
 
     const { topic, country, extraJson } = req.body || {};
 
-    // 1️⃣ JSON 파싱
+    // 1) JSON 파싱
     let extra = {};
-    if (extraJson) {
+    if (extraJson && String(extraJson).trim()) {
       try {
         extra = JSON.parse(extraJson);
       } catch {
-        return res.status(400).json({
-          ok: false,
-          error: "INVALID_JSON",
-        });
+        return res.status(400).json({ ok: false, error: "INVALID_JSON" });
       }
     }
 
-    // 2️⃣ prompt 자동 매핑
+    // 2) prompt 자동 매핑
     const finalPrompt =
       typeof extra.prompt === "string" && extra.prompt.trim()
         ? extra.prompt.trim()
@@ -66,13 +66,10 @@ app.post("/execute", async (req, res) => {
         : "";
 
     if (!finalPrompt) {
-      return res.status(400).json({
-        ok: false,
-        error: "EMPTY_TOPIC",
-      });
+      return res.status(400).json({ ok: false, error: "EMPTY_TOPIC" });
     }
 
-    // 3️⃣ live로 전달
+    // 3) live로 전달 (/execute 사용)
     const r = await fetch(`${ENGINE_URL}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -95,6 +92,4 @@ app.post("/execute", async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () =>
-  console.log(`[finishflow-web-ui] listening on ${port}`)
-);
+app.listen(port, () => console.log(`[finishflow-web-ui] listening on ${port}`));
