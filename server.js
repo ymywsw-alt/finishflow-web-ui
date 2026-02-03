@@ -1,4 +1,4 @@
-const express = require("express");
+import express from "express";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -19,7 +19,7 @@ app.get("/health", (req, res) => res.json({ ok: true }));
  * 사용자용 1줄 에러 메시지 (운영 편의)
  */
 function userErrorMessage(err) {
-  const code = err?.errorCode || err?.code || "";
+  const code = err?.errorCode || err?.code || err?.error || "";
   if (!code) return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
   if (String(code).startsWith("E-NO-OPENAI-KEY")) return "서버 설정 오류(키 누락). 관리자에게 문의하세요.";
   if (String(code).startsWith("E-OPENAI")) return "AI 호출 실패. 잠시 후 다시 시도해주세요.";
@@ -243,11 +243,9 @@ app.get("/", (req, res) => {
         return;
       }
 
-      // 성공
       $("msg").innerHTML = '<div class="ok">' + esc(data.text || "완료") + "</div>";
       $("output").innerHTML = renderResult(data.result);
 
-      // copy 버튼 이벤트
       document.querySelectorAll("button.copy").forEach((btn) => {
         btn.addEventListener("click", () => {
           const v = decodeURIComponent(btn.getAttribute("data-copy") || "");
@@ -305,8 +303,6 @@ app.post("/make", async (req, res) => {
     });
 
     const data = await r.json();
-
-    // 엔진이 ok:false면 그대로 전달(사용자 1줄로 UI에서 처리)
     return res.status(200).json(data);
   } catch (e) {
     return res.status(500).json({
