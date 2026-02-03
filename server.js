@@ -3,33 +3,8 @@ import express from "express";
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
-/**
- * ✅ 엔진 베이스 URL
- * - Render 환경변수 FINISHFLOW_API_BASE 로 주입 가능
- * - 기본값은 현재 기준선 엔진으로 고정
- */
 const API_BASE = (process.env.FINISHFLOW_API_BASE || "https://finishflow-live-2.onrender.com").replace(/\/+$/, "");
 
-/**
- * 간단 health
- */
-app.get("/health", (req, res) => res.json({ ok: true }));
-
-/**
- * 사용자용 1줄 에러 메시지 (운영 편의)
- */
-function userErrorMessage(err) {
-  const code = err?.errorCode || err?.code || err?.error || "";
-  if (!code) return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
-  if (String(code).startsWith("E-NO-OPENAI-KEY")) return "서버 설정 오류(키 누락). 관리자에게 문의하세요.";
-  if (String(code).startsWith("E-OPENAI")) return "AI 호출 실패. 잠시 후 다시 시도해주세요.";
-  if (String(code).startsWith("E-PARSE")) return "결과 처리 오류. 잠시 후 다시 시도해주세요.";
-  return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
-}
-
-/**
- * HTML escape (XSS 방지)
- */
 function esc(s) {
   return String(s || "")
     .replace(/&/g, "&amp;")
@@ -39,11 +14,8 @@ function esc(s) {
     .replace(/'/g, "&#39;");
 }
 
-/**
- * 메인 UI 페이지
- * - 주제 1줄 + 국가 선택
- * - 결과 카드 출력
- */
+app.get("/health", (req, res) => res.json({ ok: true }));
+
 app.get("/", (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.end(`<!doctype html>
@@ -57,12 +29,13 @@ app.get("/", (req, res) => {
     .wrap { max-width: 980px; margin: 0 auto; }
     h1 { font-size: 22px; margin: 0 0 8px; }
     .meta { color: #555; font-size: 13px; margin-bottom: 16px; }
-    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     select, textarea, button { font-size: 14px; }
     textarea { width: 100%; max-width: 980px; padding: 10px; }
     button { padding: 10px 14px; cursor: pointer; }
     .btn { background: #111; color: #fff; border: 0; border-radius: 10px; }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .mini { padding: 6px 10px; border-radius: 10px; border: 1px solid #ddd; background: #fff; }
     .card { border: 1px solid #e5e5e5; border-radius: 14px; padding: 14px; margin-top: 14px; }
     .card h2 { font-size: 16px; margin: 0 0 8px; }
     .muted { color: #666; font-size: 13px; }
@@ -88,6 +61,14 @@ app.get("/", (req, res) => {
 
     <div class="card">
       <h2>주제 입력</h2>
+
+      <div class="row" style="margin-bottom:10px;">
+        <button class="mini" id="p1">시니어 경제 뉴스(기본)</button>
+        <button class="mini" id="p2">시니어 건강/웰빙</button>
+        <button class="mini" id="p3">시니어 자산/주거</button>
+        <span class="muted">프리셋 클릭 → 주제 자동 삽입</span>
+      </div>
+
       <div class="row">
         <label>국가/언어</label>
         <select id="country">
@@ -96,13 +77,16 @@ app.get("/", (req, res) => {
           <option value="US">US (영어)</option>
         </select>
       </div>
+
       <div style="margin-top:10px;">
         <textarea id="topic" rows="4" placeholder="예: 오늘 환율 급등, 시니어 생활비 영향">오늘 환율 급등, 시니어 생활비 영향</textarea>
       </div>
+
       <div class="row" style="margin-top:10px;">
         <button id="run" class="btn">한방 제작 실행</button>
         <span id="status" class="muted"></span>
       </div>
+
       <div id="msg" style="margin-top:10px;"></div>
     </div>
 
@@ -114,7 +98,6 @@ app.get("/", (req, res) => {
   </div>
 
 <script>
-  const API_BASE = ${JSON.stringify(API_BASE)};
   const $ = (id) => document.getElementById(id);
 
   function esc(s) {
@@ -130,7 +113,7 @@ app.get("/", (req, res) => {
     const code = err && (err.errorCode || err.code || err.error);
     if (!code) return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
     const c = String(code);
-    if (c.startsWith("E-NO-OPENAI-KEY")) return "서버 설정 오류(키 누락). 관리자에게 문의하세요.";
+    if (c.startsWith("E-RATE-LIMIT")) return "요청이 많습니다. 잠시 후 다시 시도해주세요.";
     if (c.startsWith("E-OPENAI")) return "AI 호출 실패. 잠시 후 다시 시도해주세요.";
     if (c.startsWith("E-PARSE")) return "결과 처리 오류. 잠시 후 다시 시도해주세요.";
     return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
@@ -215,9 +198,37 @@ app.get("/", (req, res) => {
     \`;
   }
 
+  // ✅ 프리셋: 클릭하면 topic 자동 삽입
+  const presets = {
+    p1: "오늘 핵심 경제 뉴스 1건을 선택해 시니어 생활비/물가/의료비에 어떤 영향이 있는지 설명해줘. (과장 금지, 투자 조언 금지)",
+    p2: "오늘 시니어에게 중요한 건강/수면/통증 주제 1건을 선택해, 정의-왜 중요한지-생활에서 점검할 1가지를 중심으로 뉴스 톤으로 설명해줘.",
+    p3: "오늘 시니어 자산/주거 이슈 1건(실버타운, 상속/증여, 연금, 세금)을 선택해, 손해 회피 관점에서 중립적으로 설명해줘. (투자 조언 금지)",
+  };
+  $("p1").onclick = () => { $("country").value = "KR"; $("topic").value = presets.p1; };
+  $("p2").onclick = () => { $("country").value = "KR"; $("topic").value = presets.p2; };
+  $("p3").onclick = () => { $("country").value = "KR"; $("topic").value = presets.p3; };
+
+  // ✅ 10초 쿨다운(연타 방지)
+  function startCooldown(sec) {
+    let left = sec;
+    $("run").disabled = true;
+    $("status").textContent = "쿨다운 " + left + "초...";
+    const t = setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(t);
+        $("run").disabled = false;
+        $("status").textContent = "";
+        return;
+      }
+      $("status").textContent = "쿨다운 " + left + "초...";
+    }, 1000);
+  }
+
   $("run").onclick = async () => {
     const topic = $("topic").value.trim();
     const country = $("country").value;
+
     $("msg").innerHTML = "";
     $("output").innerHTML = "";
 
@@ -226,8 +237,8 @@ app.get("/", (req, res) => {
       return;
     }
 
-    $("run").disabled = true;
-    $("status").textContent = "실행 중...";
+    // 클릭 즉시 쿨다운 시작(과금/폭주 방지)
+    startCooldown(10);
 
     try {
       const r = await fetch("/make", {
@@ -252,12 +263,8 @@ app.get("/", (req, res) => {
           copyText(v);
         });
       });
-
     } catch (e) {
       $("msg").innerHTML = '<div class="error">네트워크 오류. 잠시 후 다시 시도해주세요.</div>';
-    } finally {
-      $("run").disabled = false;
-      $("status").textContent = "";
     }
   };
 </script>
@@ -267,8 +274,6 @@ app.get("/", (req, res) => {
 
 /**
  * ✅ web-ui 실행 엔드포인트
- * - topic/country 입력 → 엔진 /execute 호출
- * - 엔진 응답을 그대로 UI에 전달 (A안 기준)
  */
 app.post("/make", async (req, res) => {
   try {
