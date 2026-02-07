@@ -2,51 +2,66 @@ import express from "express";
 
 const app = express();
 
-// JSON 바디 파싱
-app.use(express.json({ limit: "10mb" }));
+// ✅ Render/브라우저 디버깅용: 모든 요청 로그
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    console.log(`[web-ui] ${req.method} ${req.url} -> ${res.statusCode} (${Date.now() - start}ms)`);
+  });
+  next();
+});
 
-// 정적 파일(public/index.html 등)
+app.use(express.json({ limit: "10mb" }));
 app.use(express.static("public"));
 
-// 헬스체크 (선택이지만 강력 추천)
 app.get("/health", (req, res) => {
   res.status(200).send("ok");
 });
 
-// 엔진 주소
-const ENGINE_URL = process.env.ENGINE_URL;
-if (!ENGINE_URL) {
-  console.error("ENGINE_URL is not set");
-}
+const ENGINE_URL = (process.env.ENGINE_URL || "").replace(/\/$/, "");
+console.log(`[web-ui] ENGINE_URL=${ENGINE_URL || "(missing)"}`);
 
-// ✅ 핵심: /make 프록시 (web-ui -> live-3)
 app.post("/make", async (req, res) => {
-  try {
-    if (!ENGINE_URL) {
-      return res.status(500).json({ ok: false, error: "ENGINE_URL is not set" });
-    }
+  if (!ENGINE_URL) {
+    console.error("[web-ui] ENGINE_URL is missing");
+    return res.status(500).json({ ok: false, error: "ENGINE_URL is not set" });
+  }
 
-    const upstream = await fetch(`${ENGINE_URL}/make`, {
+  console.log("[web-ui] /make payload keys:", Object.keys(req.body || {}));
+
+  // ✅ 타임아웃 (엔진이 느릴 수 있음)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000); // 120s
+
+  try {
+    const upstreamUrl = `${ENGINE_URL}/make`;
+    console.log("[web-ui] proxy ->", upstreamUrl);
+
+    const upstream = await fetch(upstreamUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(req.body ?? {}),
+      signal: controller.signal,
     });
 
     const contentType = upstream.headers.get("content-type") || "application/json";
     const text = await upstream.text();
 
+    console.log("[web-ui] upstream status:", upstream.status);
+
     res.status(upstream.status);
     res.setHeader("content-type", contentType);
     return res.send(text);
   } catch (e) {
-    console.error("proxy /make error:", e);
-    return res.status(500).json({ ok: false, error: "proxy /make failed" });
+    const msg = e?.name === "AbortError" ? "UPSTREAM_TIMEOUT" : String(e);
+    console.error("[web-ui] proxy /make error:", msg);
+    return res.status(502).json({ ok: false, error: "proxy_failed", detail: msg });
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
-// Render 포트
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`finishflow-web-ui listening on ${PORT}`);
-  console.log(`ENGINE_URL=${ENGINE_URL || "(missing)"}`);
+  console.log(`[web-ui] listening on ${PORT}`);
 });
