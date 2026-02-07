@@ -3,7 +3,7 @@ import express from "express";
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
-const API_BASE = (process.env.FINISHFLOW_API_BASE || "https://finishflow-live-2.onrender.com").replace(/\/+$/, "");
+const API_BASE = (process.env.ENGINE_URL || process.env.FINISHFLOW_API_BASE || "https://finishflow-live-3.onrender.com").replace(/\/+$/, "");
 
 function esc(s) {
   return String(s || "")
