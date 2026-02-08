@@ -15,7 +15,11 @@ async function run() {
   const out = document.getElementById("result");
 
   const country = document.getElementById("country").value;
-  const topic = document.getElementById("topic").value.trim();
+  const topicEl = document.getElementById("topic");
+topicEl.blur(); // ✅ 한글 조합 확정
+await new Promise((r) => setTimeout(r, 0)); // ✅ 이벤트 루프 1틱 대기
+const topic = (topicEl.value || "").trim();
+
   const paramsText = document.getElementById("params").value.trim();
 
   if (!topic) {
